@@ -77,6 +77,7 @@ class SVDFunction(autograd.Function):
         U_p_det = wp.determinant(U_p)
         V_p_det = wp.determinant(V_p)
 
+        # Sign-correction to ensure U and V are proper rotations (det = +1), which is important for the physical correctness of the SVD in constitutive models, e.g. corotated elasticity, where the rotation part is used to compute stress from deformation. If we don't do this, we might get reflections (det = -1) that can cause non-physical behavior in the simulation. This is a common issue in SVD implementations and the sign correction is a standard fix.
         if U_p_det < 0.0:
             U_p = wp.mat33(
                 U_p[0, 0], U_p[0, 1], -U_p[0, 2],
