@@ -1,12 +1,9 @@
 name: nclaw
 channels:
   - defaults
+  - conda-forge
 dependencies:
   - python=3.10
-  - torchvision
-  - pytorch
-  - pytorch-cuda=11.7
-  - torchaudio
   - scipy
   - pyvista
   - hydra-core
@@ -15,3 +12,9 @@ dependencies:
   - tqdm
   - psutil
   - tensorboard
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/nightly/cu128
+      - torch --pre
+      - numpy<2.0
+      - warp-lang==0.10.1

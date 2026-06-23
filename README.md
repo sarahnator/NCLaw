@@ -18,72 +18,79 @@ https://github.com/PingchuanMa/NCLaw/assets/16499005/e1fed91f-da58-4a79-a130-5cc
 }
 ```
 
-## Prerequisites
+## Blackwell RTX 5090 Optimized
 
-This codebase is tested using the environment with the following key packages:
+This codebase has been updated and optimized for **NVIDIA Blackwell Architecture (RTX 5090 / sm_120)**:
 
-- Ubuntu 20.04
-- CUDA 11.7
-- GCC 11
-- Python 3.10.11
-- PyTorch 2.0.1
-- Warp 0.6.1
+- Ubuntu 20.04 / 22.04
+- CUDA Driver 12.8+
+- Python 3.10
+- PyTorch 2.x (CUDA 12.8 Nightly Build)
+- Warp 0.10.1
+- NumPy < 2.0
+
+Key Takeaways:
+* **`PYTHONNOUSERSITE=1`**: the global user directory (`~/.local`) contains package versions that conflict with the sandbox versions required by Warp.
+* **`PYTHONPATH=.`**: Explicitly tells Python to look inside the root directory of `NCLaw` for module paths, removing any structural confusion.
 
 ## Installation
 
-Prepare conda environment with proper Python:
-
-```bash
-conda create -n nclaw python=3.10  # create env
-conda activate nclaw               # activate env
+1. Prepare the isolated conda environment:
+   ```bash
+   conda env create -f environment.yml
+   conda activate nclaw
 ```
 
-Install required packages:
-
+2. Link NCLaw into the local active environment sandbox:
 ```bash
-conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
-conda install numpy scipy pyvista hydra-core trimesh einops tqdm psutil tensorboard -c defaults -c conda-forge
+pip install -e .
 ```
 
-Compile `warp` and install `nclaw`:
-
-```bash
-bash ./build.sh
-```
 
 ## Experiments
-
+When running experiments on this architecture, you must prepend the runtime execution flags. This guarantees that Python isolates its modules to your local sandbox environment and explicitly maps your repository structure.
 Generate dataset:
 
 ```bash
-python experiments/scripts/dataset/main.py
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/dataset/main.py
 ```
 
 Train NCLaw:
 
 ```bash
-python experiments/scripts/train/invariant_full_meta-invariant_full_meta.py
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/train/invariant_full_meta-invariant_full_meta.py
 ```
 
 Evaluate NCLaw:
 
 ```bash
 # Reconstruction
-python experiments/scripts/eval/dataset.py --gt
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/dataset.py --gt
 
 # Generalization
-python experiments/scripts/eval/time.py --gt  # (a) time
-python experiments/scripts/eval/vel.py --gt   # (b) velocity
-python experiments/scripts/eval/shape.py --gt # (c) geometry
-python experiments/scripts/eval/slope.py      # (d) boundary
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/time.py --gt  # (a) time
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/vel.py --gt   # (b) velocity
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/shape.py --gt # (c) geometry
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/slope.py      # (d) boundary
 
 # Extreme
-python experiments/scripts/eval/large.py   # (a) one-million
-python experiments/scripts/eval/contact.py # (b) collision
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/large.py   # (a) one-million
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/contact.py # (b) collision
 
 # Multi-physics
-python experiments/scripts/eval/pool.py    # (a) coupled-physics
-python experiments/scripts/eval/melting.py # (b) phase-transition
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/pool.py    # (a) coupled-physics
+export CUDA_PATH=$CONDA_PREFIX
+PYTHONPATH=. PYTHONNOUSERSITE=1 python experiments/scripts/eval/melting.py # (b) phase-transition
 ```
 
 ## Results
