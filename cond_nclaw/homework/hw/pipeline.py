@@ -73,8 +73,21 @@ def train_conditioned(model, F, z, tau, scale, steps=2500, lr=3e-3):    # [C4]
     # Each step:  pred = model(F, z)
     #             loss = MSE(pred, tau / scale)      # normalized-stress loss
     #             loss.backward(); opt.step(); sched.step()
-    raise NotImplementedError("EXERCISE C4: Adam + cosine, normalized-stress MSE loop")
 
+    opt = torch.optim.Adam([
+        {"params": model.parameters(), "lr": lr},
+    ])
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
+    criterion = torch.nn.MSELoss()
+
+    for step in range(steps):
+        opt.zero_grad()
+
+        Y = model(F, z)
+        loss = criterion(Y, tau / scale)
+        loss.backward()
+        opt.step()
+        sched.step()
 
 def rel_err(model, F, z, tau, scale):
     with torch.no_grad():
