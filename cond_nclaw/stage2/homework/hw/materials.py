@@ -90,6 +90,7 @@ class _CondInvariantFull(nn.Module):
         return R, Ft, torch.cat([I1, I2, I3], -1)
 
     def _frame(self, inv, z):
+
         # EXERCISE T1 -- conditioning injection + equilibrium.
         #   x = cat([inv, z], -1)            # (..., 13 + z_dim)
         #   x -> self.layers -> self.final_layer -> reshape (..., 3, 3)
@@ -97,14 +98,34 @@ class _CondInvariantFull(nn.Module):
         # If self.rest_correct: subtract the SAME network evaluated at the rest
         #   input cat([0*inv, z]) so equilibrium holds for EVERY z. With the default
         #   (rest_correct=False, plain concat) equilibrium instead holds only at z=0.
-        raise NotImplementedError("T1: cat z, MLP, symmetrize; optional rest-state subtraction")
 
+        x = torch.cat([inv, z], dim=-1)
+        for layer in self.layers:
+            x = layer(x)
+        T = self.final_layer(x).reshape(-1, self.dim, self.dim)
+        T = 0.5 * (T + T.mT)
+
+        if self.rest_correct:
+            x0 = torch.cat([0 * inv, z], dim=-1)
+            for layer in self.layers:
+                x0 = layer(x0)
+            T0 = self.final_layer(x0).reshape(-1, self.dim, self.dim)
+            T0 = 0.5 * (T0 + T0.mT)
+
+            T -= T0
+    
+        return T
 
 class CondElasticity(_CondInvariantFull):
     def forward(self, F, z):
         # EXERCISE T2a -- the elastic head.
         # R, Ft, inv = self._invariants(F);  return (R @ _frame(inv, z)) @ Ft
-        raise NotImplementedError("T2: elastic head -> R @ T @ F^T")
+
+        R, Ft, inv = self._invariants(F)
+        T = self._frame(inv, z)
+        P = R @ T
+        cauchy = P @ Ft
+        return cauchy
 
 
 class CondPlasticity(_CondInvariantFull):
@@ -115,4 +136,6 @@ class CondPlasticity(_CondInvariantFull):
     def forward(self, F, z):
         # EXERCISE T2b -- the plastic head (a small return-map nudge).
         # R, Ft, inv = self._invariants(F);  return F + self.alpha * (R @ _frame(inv, z))
-        raise NotImplementedError("T2: plastic head -> F + alpha * R @ T")
+        R, Ft, inv = self._invariants(F)
+        P = R @ self._frame(inv, z)
+        return F + self.alpha * P
