@@ -10,8 +10,8 @@ Z_DIM = 4
 
 def sample_family(n, seed, E=2000.0, nu_range=(0.1, 0.4), tauY_range=(50.0, 300.0)):
     g = torch.Generator().manual_seed(seed)
-    nu = torch.empty(n, dtype=torch.float64).uniform_(*nu_range, generator=g)
-    tauY = torch.empty(n, dtype=torch.float64).uniform_(*tauY_range, generator=g)
+    nu = torch.empty(n, dtype=torch.float64).uniform_(*nu_range, generator=g) # Poisson ratio governs elasticity
+    tauY = torch.empty(n, dtype=torch.float64).uniform_(*tauY_range, generator=g) # yield stress governs plasticity
     E_t = torch.full((n,), float(E), dtype=torch.float64)
     params = torch.stack([nu, tauY], -1)
     return E_t, nu, tauY, params
@@ -26,10 +26,10 @@ def build_grouped(E, nu, tauY, n_def, seed):
     mu, lam = lame(E, nu)
     n = E.shape[0]
     F = torch.eye(3, dtype=torch.float64).expand(n, n_def, 3, 3) \
-        + 0.15 * torch.randn(n, n_def, 3, 3, generator=g, dtype=torch.float64)
+        + 0.15 * torch.randn(n, n_def, 3, 3, generator=g, dtype=torch.float64) # random deformation gradients
     mu_b = mu[:, None].expand(n, n_def)
-    tau = corotated_cauchy(F, mu_b, lam[:, None].expand(n, n_def))
-    Fp = vonmises_return(F, mu_b, tauY[:, None].expand(n, n_def))
+    tau = corotated_cauchy(F, mu_b, lam[:, None].expand(n, n_def)) # stress
+    Fp = vonmises_return(F, mu_b, tauY[:, None].expand(n, n_def)) # plastic projection computes plastic deformation tensor F_p
     return F, tau, Fp
 
 
@@ -38,10 +38,10 @@ class LatentBook(nn.Module):
         super().__init__()
         # EXERCISE T3 -- the shared codebook (ONE latent per material, feeds both nets).
         #   self.z = nn.Parameter(randn(n, z_dim, float64) * std)   # std=1.0 matters
-        raise NotImplementedError("T3: make self.z a learnable (n, z_dim) table")
+        self.z = nn.Parameter(torch.randn(n, z_dim, dtype=torch.float64) * std) # make self.z a learnable (n, z_dim) table
 
     def forward(self, idx):
-        raise NotImplementedError("T3: look up self.z[idx]")
+        return self.z[idx]  # look up the latent for each material index in idx
 
 
 def train_autodecoder(elastic, plastic, book, F, tau, Fp, tau_scale,
@@ -57,7 +57,26 @@ def train_autodecoder(elastic, plastic, book, F, tau, Fp, tau_scale,
     #           + MSE(plastic(Ff, z), Fpf)              # Fp is O(1), unscaled
     #      backward; opt.step(); sched.step()
     # 3. return elastic, plastic, book
-    raise NotImplementedError("T4: dual-LR Adam, joint elastic+plastic loss")
+
+    opt = torch.optim.Adam([
+        {'params': list(elastic.parameters()) + list(plastic.parameters()), 'lr': lr},
+        {'params': book.parameters(), 'lr': lr * latent_lr_mult}
+    ])
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
+
+    for step in range(steps):
+        opt.zero_grad()
+        z = book(idx)
+        elastic_pred = elastic(Ff, z)
+        plastic_pred = plastic(Ff, z)
+        loss_elastic = nn.functional.mse_loss(elastic_pred, tf / tau_scale) # normalized stress
+        loss_plastic = nn.functional.mse_loss(plastic_pred, Fpf)
+        loss = loss_elastic + loss_plastic
+        loss.backward()
+        opt.step()
+        sched.step()
+
+    return elastic, plastic, book
 
 
 def rel_err_elastic(elastic, book, F, tau, tau_scale):
@@ -106,4 +125,32 @@ def invert_latent(elastic, plastic, F, tau, Fp, tau_scale,
     # 3. Each step: broadcast z to (batch, z_dim);
     #      loss = MSE(elastic(...), tf/tau_scale) + MSE(plastic(...), Fpf); backward; step; sched.step()
     # 4. Unfreeze the nets; return z.detach().
-    raise NotImplementedError("T5: freeze both nets, optimize a fresh latent")
+
+    for p in elastic.parameters():
+        p.requires_grad_(False)
+    for p in plastic.parameters():
+        p.requires_grad_(False)
+
+    z = nn.Parameter(torch.randn(z_dim, dtype=torch.float64) * std)
+    opt = torch.optim.Adam([z], lr=lr)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
+
+    for step in range(steps):
+        opt.zero_grad()
+        z_broadcasted = z.unsqueeze(0).expand(Ff.shape[0], -1)  # broadcast to (batch, z_dim)
+        elastic_pred = elastic(Ff, z_broadcasted)
+        plastic_pred = plastic(Ff, z_broadcasted)
+        loss_elastic = nn.functional.mse_loss(elastic_pred, tf / tau_scale)  # normalized stress
+        loss_plastic = nn.functional.mse_loss(plastic_pred, Fpf)
+        loss = loss_elastic + loss_plastic
+        loss.backward()
+        opt.step()
+        sched.step()
+
+    for p in elastic.parameters():
+        p.requires_grad_(True)
+    for p in plastic.parameters():
+        p.requires_grad_(True)
+
+    return z.detach()
+

@@ -21,7 +21,7 @@ https://github.com/PingchuanMa/NCLaw/assets/16499005/e1fed91f-da58-4a79-a130-5cc
 ## Installation
 Run
 ```sh
-uv syc
+uv sync
 ```
 
 Install `nclaw`:
