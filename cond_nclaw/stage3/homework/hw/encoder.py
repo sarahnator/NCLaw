@@ -62,8 +62,14 @@ class TrajEncoder(nn.Module):                                # [E1]
         #   x = cat([F.flatten to 9, tau.flatten to 9], -1)   # (M, K, 18)
         #   h = self.phi(x).mean(dim=-2)                        # per-sample feat, POOL over K
         #   return self.rho(h)                                 # (M, z_dim)
-        raise NotImplementedError("E1: per-sample phi, mean-pool over samples, rho")
+        M, K, *spatial_dims = F.shape
 
+        F_flat = F.reshape(M, K, -1)
+        tau_flat = tau.reshape(*tau.shape[:-2], 9) # Fun way to reshape I guess
+        x = torch.cat([F_flat, tau_flat], axis=-1)
+        h = self.phi(x).mean(dim=1)
+        z = self.rho(h)
+        return z
 
 # --------------------------- contrastive loss ------------------------------
 def contrastive_loss(za, zb, params_std, temp=0.2, sigma=1.0):   # [E2]
@@ -77,8 +83,19 @@ def contrastive_loss(za, zb, params_std, temp=0.2, sigma=1.0):   # [E2]
     # 3. symmetric soft cross-entropy over the two views:
     #        -0.5 * [ (target * log_softmax(logits)).sum(-1).mean()
     #               + (target * log_softmax(logits.T)).sum(-1).mean() ]
-    raise NotImplementedError("E2: CLIP-style soft contrastive with param-distance targets")
 
+    z1, z2 = torch.nn.functional.normalize(za, dim=-1), torch.nn.functional.normalize(zb, dim=-1)
+    logits = z1 @ z2.mT / temp
+
+    with torch.no_grad():
+        param_dist = torch.cdist(params_std, params_std) # pairwise distances
+        target = torch.softmax(-param_dist ** 2 / (2 * sigma ** 2), dim=-1)
+    
+    loss_a = (target * torch.log_softmax(logits, dim=-1)).sum(-1).mean()
+    loss_b = (target * torch.log_softmax(logits.mT, dim=-1)).sum(-1).mean()
+    loss = -0.5 * (loss_a + loss_b)
+
+    return loss
 
 # ------------------------------ training -----------------------------------
 def train_encoder(encoder, elastic, plastic, F, tau, Fp, tau_scale, params_std,   # [E3]
