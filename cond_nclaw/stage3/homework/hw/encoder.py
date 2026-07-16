@@ -112,7 +112,61 @@ def train_encoder(encoder, elastic, plastic, F, tau, Fp, tau_scale, params_std, 
     #   loss_con = contrastive_loss(za, zb, params_std)
     #   (loss_recon + lam * loss_con).backward(); opt.step(); sched.step()
     # return encoder, elastic, plastic
-    raise NotImplementedError("E3: two-view joint training, reconstruction + contrastive")
+
+    opt = torch.optim.Adam([
+        {'params': list(elastic.parameters()) + list(plastic.parameters()) + list(encoder.parameters()), 'lr': lr},
+    ])
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps)
+
+    for step in range(steps):
+        # 1. Sample disjoint views (shape: [K])
+        perm = torch.randperm(N) # N = number of deformation trajectories
+        i1, i2 = perm[:K], perm[K:2 * K]
+
+        # 2. Extract views and contract them into the encoder
+        # F shape: [N_mat, 64, 3, 3] -> F[:, i1] shape: [N_mat, K, 3, 3]
+        # tau shape: [N_mat, 64, 3, 3] -> tau[:, i1] shape: [N_mat, K, 3, 3]
+        za = encoder(F[:, i1], tau[:, i1])  # Output shape: [N_mat, z_dim]
+        zb = encoder(F[:, i2], tau[:, i2])  # Output shape: [N_mat, z_dim]
+                
+        # 3. VECTORIZED SHAPE PREPARATION FOR RECONSTRUCTION
+        # Extract tensors for view i1 across ALL materials
+        # Shapes: [N_mat, K, 3, 3]
+        F_i1 = F[:, i1]
+        tau_i1 = tau[:, i1]
+        Fp_i1 = Fp[:, i1]
+
+        # Unpack dimensions dynamically
+        N_mat, _, _, _ = F_i1.shape 
+
+        # Expand za from [N_mat, z_dim] to match every step in the trajectory: [N_mat, K, z_dim]
+        # Then, flatten both spatial dimensions down to 1D vectors for the linear network blocks
+        F_flat = F_i1.reshape(-1, 3, 3)                # Shape: [N_mat * K, 3, 3]
+        tau_flat = tau_i1.reshape(-1, 3, 3)            # Shape: [N_mat * K, 3, 3]
+        Fp_flat = Fp_i1.reshape(-1, 3, 3)              # Shape: [N_mat * K, 3, 3]
+
+        # The Broadcasting Step: Expand za along the 'K' dimension, then flatten
+        za_expanded = za.unsqueeze(1).expand(-1, K, -1).reshape(-1, Z_DIM)  # Shape: [N_mat * K, z_dim]
+
+        # 4. COMPUTE VECTORIZED MSE RECONSTRUCTION LOSS
+        # Both network models now process the entire [N_mat * K] batch in a single hardware call
+        pred_stress = elastic(F_flat, za_expanded)
+        pred_plastic = plastic(F_flat, za_expanded)
+
+        loss_elastic = Fn.mse_loss(pred_stress, tau_flat / tau_scale)
+        loss_plastic = Fn.mse_loss(pred_plastic, Fp_flat)
+
+        loss_recon = loss_elastic + loss_plastic
+
+        # 5. CONTRASTIVE AND TOTAL LOSS COMBINATION
+        loss_con = contrastive_loss(za, zb, params_std)
+        total_loss = loss_recon + lam * loss_con
+
+        # Backward and Step operations
+        opt.zero_grad()
+        total_loss.backward()
+        opt.step()
+        sched.step()
 
 
 # --------------------------- amortized inference ---------------------------
@@ -120,7 +174,8 @@ def amortized_infer(encoder, F, tau):                        # [E4]
     """A material's observations -> its latent, in ONE forward pass (no optimization)."""
     # EXERCISE E4 -- one forward pass, NO optimization (contrast with Stage-2 inversion).
     #   with torch.no_grad(): return encoder(F, tau)
-    raise NotImplementedError("E4: encode observations -> z in a single pass")
+    with torch.no_grad():
+        return encoder(F, tau)
 
 
 # ------------------------------ diagnostics --------------------------------
