@@ -192,4 +192,18 @@ def cluster_accuracy(z_tr, types_tr, z_te, types_te):      # [H4]
     # 1. centroids: mean latent of each type over the TRAIN materials -> (3, z_dim)
     # 2. assign each test latent to the nearest centroid (cdist -> argmin)
     # 3. return accuracy vs the true test types
-    raise NotImplementedError("H4: nearest-centroid type accuracy")
+    mat_id = torch.unique(types_te)
+    n_mat = len(mat_id)
+    *batch, z_dim = z_te.shape
+
+    centroids = torch.zeros((n_mat, z_dim))
+    for mat in enumerate(mat_id):
+        mask = (types_tr == int(mat[1]))
+        mean = z_tr[mask].mean(dim=0)
+        centroids[int(mat[0])] = mean
+
+    cdist = torch.cdist(centroids, z_te)
+    clusters = torch.argmin(cdist, dim=-1)
+
+    acc = (clusters == types_te).double().mean().item()
+    return acc
